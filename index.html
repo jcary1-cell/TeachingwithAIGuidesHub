@@ -498,6 +498,12 @@ a:hover .arrow, button:hover .arrow { transform: translateX(4px); }
 .nav.on-dark:not(.scrolled) .install-btn { color: #fff; border-color: rgba(255,255,255,.35); }
 .nav.on-dark:not(.scrolled) .install-btn:hover { background: rgba(255,255,255,.1); }
 @media (max-width: 860px) { .install-btn { margin: 10px 0 0; } }
+.ihelp { position: fixed; inset: 0; z-index: 300; background: rgba(0,38,26,.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); display: grid; place-items: center; padding: 16px; animation: rise .3s var(--ease); }
+.ihelp-card { background: var(--card); color: var(--ink); border-radius: 22px; padding: 28px; max-width: 440px; width: 100%; box-shadow: var(--shadow-lg); display: grid; gap: 14px; }
+.ihelp-card h3 { font-size: 28px; }
+.ihelp-card ol { margin: 0; padding-left: 22px; display: grid; gap: 8px; font-size: 16px; }
+.ihelp-card p { margin: 0; color: var(--muted); font-size: 14.5px; }
+.ihelp-card .btn { justify-self: start; }
 
 </style>
   <style>
@@ -7020,13 +7026,37 @@ window.FRAMEWORKS = [
   window.addEventListener('scroll', function () { nav.classList.toggle('scrolled', window.scrollY > 20); }, { passive: true });
   var rt; window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(function () { if (onResize) onResize(); }, 120); });
   document.getElementById('nav-toggle').onclick = function () { var o = nav.classList.toggle('open'); this.setAttribute('aria-expanded', o); };
-  /* installable app: show an Install button when the browser offers one */
+  /* installable app: the button uses the browser's prompt when it has one,
+     and otherwise opens step-by-step instructions for this browser */
   var deferredInstall = null, ib = document.getElementById('install-btn');
+  var standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
+  if (WEB && !standalone) ib.hidden = false;
   window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); deferredInstall = e; ib.hidden = false; });
+  function installHelp() {
+    var ua = navigator.userAgent, isEdge = /Edg\//.test(ua), isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    var isSafari = /Safari\//.test(ua) && !/Chrome|Chromium|Edg\//.test(ua), isFirefox = /Firefox\//.test(ua);
+    var steps;
+    if (isIOS) steps = ['Tap the <b>Share</b> button (the square with an arrow).', 'Scroll down and tap <b>Add to Home Screen</b>.', 'Tap <b>Add</b>.'];
+    else if (isEdge) steps = ['Click the <b>⋯</b> menu at the top right of Edge.', 'Choose <b>Apps</b>, then <b>Install this site as an app</b>.', 'Click <b>Install</b>.'];
+    else if (isSafari) steps = ['In the menu bar at the top of your screen, click <b>File</b>.', 'Choose <b>Add to Dock</b>.', 'Click <b>Add</b>.'];
+    else if (isFirefox) steps = ['Firefox on a computer can’t install web apps.', 'Open this page in <b>Chrome</b>, <b>Edge</b>, or <b>Safari</b> to install it.', 'Everything still works here in Firefox.'];
+    else steps = ['Click the <b>⋮</b> menu at the top right of Chrome.', 'Choose <b>Cast, save, and share</b>, then <b>Install page as app…</b>', 'Click <b>Install</b>. (You can also use the install icon at the right end of the address bar.)'];
+    var box = document.createElement('div'); box.className = 'ihelp'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-labelledby', 'ihelp-t');
+    box.innerHTML = '<div class="ihelp-card"><span class="eyebrow plain">Install the app</span><h3 id="ihelp-t">Add the Field Guide to your ' + (isIOS ? 'Home Screen' : 'computer') + '</h3><ol>' + steps.map(function (t) { return '<li>' + t + '</li>'; }).join('') + '</ol><p>It opens in its own window and works offline after the first visit.</p><button class="btn btn-green" id="ihelp-x">Got it</button></div>';
+    document.body.appendChild(box);
+    function close() { box.remove(); ib.focus(); }
+    box.onclick = function (e) { if (e.target === box) close(); };
+    document.getElementById('ihelp-x').onclick = close;
+    box.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+    document.getElementById('ihelp-x').focus();
+  }
   ib.onclick = function () {
-    if (!deferredInstall) return;
-    deferredInstall.prompt();
-    deferredInstall.userChoice.then(function () { deferredInstall = null; ib.hidden = true; });
+    if (!deferredInstall) return installHelp();
+    var ev = deferredInstall; deferredInstall = null;
+    try {
+      Promise.resolve(ev.prompt()).catch(installHelp);
+      if (ev.userChoice) ev.userChoice.then(function (c) { if (c && c.outcome === 'accepted') ib.hidden = true; });
+    } catch (err) { installHelp(); }
   };
   window.addEventListener('appinstalled', function () { ib.hidden = true; toast('Installed. Open it from your Dock, Start menu, or apps.'); });
   if (navigator.serviceWorker && window.HUB_SW) {
